@@ -28,6 +28,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		requestUrl := scanner.Text()
@@ -37,7 +38,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		ioutil.WriteFile("out.html", []byte(nodes.Html()), 0644)
+		writeNodes2File("out.html", nodes)
 
 		foundNodes := nodes.Find(".flex-dow-txt")
 		fmt.Println(foundNodes[0].Data)
@@ -45,14 +46,19 @@ func main() {
 
 		titles := make([]Title, 0, len(foundNodes))
 		for _, node := range foundNodes {
-			title := getTitle(requestUrl, node)
+			title := getTitle("https://jaomix.ru", node)
 			if title.title != "" {
 				titles = append(titles, title)
 			}
 		}
-
 		parseChapters(titles)
+	}
+}
 
+func writeNodes2File(filename string, nodes goquery.Nodes) {
+	err := ioutil.WriteFile(filename, []byte(nodes.Html()), 0664)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
@@ -62,7 +68,7 @@ func getTitle(requestUrl string, node *goquery.Node) Title {
 			hrefNode := node.Child[0]
 			title := hrefNode.Attr[1].Val
 			link := hrefNode.Attr[0].Val
-			return Title{title: title, link: "https://jaomix.ru" + link}
+			return Title{title: title, link: requestUrl + link}
 		}
 	}
 	return Title{}
@@ -70,6 +76,29 @@ func getTitle(requestUrl string, node *goquery.Node) Title {
 
 func parseChapters(titles []Title) {
 	createDir("chapters/")
+	titles = lookup4NewChapters(titles)
+
+	var wg sync.WaitGroup
+	for _, title := range titles {
+		wg.Add(1)
+		go func(sync *sync.WaitGroup, title Title) {
+			defer sync.Done()
+			fmt.Println(title.link)
+			nodes, err := goquery.ParseUrl(title.link)
+			if err != nil {
+				log.Fatal(err)
+			}
+			removeNodesList(&nodes, ".adsbygoogle", "header-sticky",
+				".block-sidebar-rtb", ".adblock-service",
+				"script", "noscript")
+
+			writeNodes2File(fmt.Sprintf("chapters/%s.html", title.title), nodes)
+		}(&wg, title)
+	}
+	wg.Wait()
+}
+
+func lookup4NewChapters(titles []Title) []Title {
 	fileInfos, err := ioutil.ReadDir("chapters/")
 	if err != nil {
 		log.Fatal(err)
@@ -83,39 +112,22 @@ func parseChapters(titles []Title) {
 			}
 		}
 	}
-
-	var wg sync.WaitGroup
-	for _, title := range titles {
-		wg.Add(1)
-		go func(sync *sync.WaitGroup, title Title) {
-			defer sync.Done()
-			fmt.Println(title.link)
-			nodes, err := goquery.ParseUrl(title.link)
-			if err != nil {
-				log.Fatal(err)
-			}
-			removeNodes(".adsbygoogle", &nodes)
-			removeNodes("header-sticky", &nodes)
-			removeNodes(".block-sidebar-rtb", &nodes)
-			removeNodes(".adblock-service", &nodes)
-			removeNodes("script", &nodes)
-			removeNodes("noscript", &nodes)
-			err = ioutil.WriteFile(fmt.Sprintf("chapters/%s.html", title.title), []byte(nodes.Html()), 0664)
-			if err != nil {
-				log.Fatal(err)
-			}
-		}(&wg, title)
-	}
-	wg.Wait()
+	return titles
 }
 
 func createDir(dirname string) {
-	_, err := os.Stat("chapters/")
+	_, err := os.Stat(dirname)
 	if os.IsNotExist(err) {
-		createDirError := os.Mkdir("chapters/", 0755)
+		createDirError := os.Mkdir(dirname, 0755)
 		if createDirError != nil {
 			log.Fatal(createDirError)
 		}
+	}
+}
+
+func removeNodesList(nodes *goquery.Nodes, selectorsList ...string) {
+	for _, selector := range selectorsList {
+		removeNodes(selector, nodes)
 	}
 }
 
