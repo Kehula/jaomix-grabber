@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sync"
 )
 
 type Title struct {
@@ -32,12 +33,6 @@ func main() {
 		requestUrl := scanner.Text()
 		fmt.Println(requestUrl)
 
-		//data, err := ioutil.ReadFile("out.html")
-		//if err != nil {
-		//	log.Fatal(err)
-		//}
-
-		//nodes, err := goquery.ParseString(string(data))
 		nodes, err := goquery.ParseUrl(requestUrl)
 		if err != nil {
 			log.Fatal(err)
@@ -55,9 +50,8 @@ func main() {
 				titles = append(titles, title)
 			}
 		}
-		for i, title := range titles {
-			fmt.Printf("%d: %s\n", i, title)
-		}
+
+		parseChapters(titles)
 
 	}
 }
@@ -74,4 +68,41 @@ func getTitle(requestUrl string, node *goquery.Node) Title {
 		}
 	}
 	return Title{}
+}
+
+func parseChapters(titles []Title) {
+	createDir("chapters/")
+	fileInfos, err := ioutil.ReadDir("chapters/")
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, fileInfo := range fileInfos {
+		fmt.Println(fileInfo)
+	}
+	var wg sync.WaitGroup
+	for _, title := range titles {
+		wg.Add(1)
+		go func(sync *sync.WaitGroup, title Title) {
+			defer sync.Done()
+			nodes, err := goquery.ParseUrl(title.link)
+			if err != nil {
+				log.Fatal(err)
+			}
+			err = ioutil.WriteFile(fmt.Sprintf("chapters/%s.html", title.title), []byte(nodes.Html()), 0664)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}(&wg, title)
+	}
+	wg.Wait()
+}
+
+func createDir(dirname string) {
+	_, err := os.Stat("chapters/")
+	if os.IsNotExist(err) {
+		createDirError := os.Mkdir("chapters/", 0755)
+		if createDirError != nil {
+			log.Fatal(createDirError)
+		}
+	}
 }
