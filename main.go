@@ -62,9 +62,7 @@ func getTitle(requestUrl string, node *goquery.Node) Title {
 			hrefNode := node.Child[0]
 			title := hrefNode.Attr[1].Val
 			link := hrefNode.Attr[0].Val
-			linkRunesSlice := []rune(link)
-			link = string(linkRunesSlice[1:])
-			return Title{title: title, link: requestUrl + link}
+			return Title{title: title, link: "https://jaomix.ru" + link}
 		}
 	}
 	return Title{}
@@ -76,18 +74,32 @@ func parseChapters(titles []Title) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, fileInfo := range fileInfos {
-		fmt.Println(fileInfo)
+	if len(fileInfos) > 0 {
+		fileInfo := fileInfos[len(fileInfos)-1]
+		for i := 0; i < len(titles); i++ {
+			if fileInfo.Name() == titles[i].title+".html" {
+				titles = titles[:i]
+				break
+			}
+		}
 	}
+
 	var wg sync.WaitGroup
 	for _, title := range titles {
 		wg.Add(1)
 		go func(sync *sync.WaitGroup, title Title) {
 			defer sync.Done()
+			fmt.Println(title.link)
 			nodes, err := goquery.ParseUrl(title.link)
 			if err != nil {
 				log.Fatal(err)
 			}
+			removeNodes(".adsbygoogle", &nodes)
+			removeNodes("header-sticky", &nodes)
+			removeNodes(".block-sidebar-rtb", &nodes)
+			removeNodes(".adblock-service", &nodes)
+			removeNodes("script", &nodes)
+			removeNodes("noscript", &nodes)
 			err = ioutil.WriteFile(fmt.Sprintf("chapters/%s.html", title.title), []byte(nodes.Html()), 0664)
 			if err != nil {
 				log.Fatal(err)
@@ -104,5 +116,13 @@ func createDir(dirname string) {
 		if createDirError != nil {
 			log.Fatal(createDirError)
 		}
+	}
+}
+
+func removeNodes(selector string, nodes *goquery.Nodes) {
+	foundNodes := nodes.Find(selector)
+	for _, foundNode := range foundNodes {
+		parentNode := foundNode.Parent
+		parentNode.Remove(foundNode.Node)
 	}
 }
